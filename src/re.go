@@ -14,9 +14,8 @@ var needle string
 var replacement string
 var dirs []string
 var replaced int
-var excludes []string
+var excludes []regexp.Regexp
 var includes []regexp.Regexp
-var flagVerbose *bool
 var flagApply *bool
 var flagExcludes *string
 var flagIncludes *string
@@ -26,22 +25,29 @@ func walk(path string, info os.FileInfo, err error) error {
 	basename := filepath.Base(path)
 
 	for _, exclude := range excludes {
-		if basename == exclude {
-			return filepath.SkipDir
+		if exclude.Match([]byte(basename)) {
+			if info.IsDir() {
+				fmt.Println("Skipping excluded directory", path)
+				return filepath.SkipDir
+			} else {
+				return nil
+			}
 		}
 	}
 
+
+	// Skip if not matching the includes list
 	if len(includes) > 0 {
 		matches := false
 		
 		for _, include := range includes {
-			if include.Match([]byte(path)) {
+			if include.Match([]byte(basename)) {
 				matches = true
 				break
 			}
 		}
 		
-		if (!matches) {
+		if !matches {
 			return nil
 		}
 	}
@@ -70,10 +76,6 @@ func walk(path string, info os.FileInfo, err error) error {
 		if *flagApply {
 			ioutil.WriteFile(path, []byte(newContents), info.Mode())
 		}
-	} else {
-		if *flagVerbose {
-			fmt.Println("-", path)
-		}
 	}
 
 	return nil
@@ -84,6 +86,10 @@ func parseRegexList(s string) []regexp.Regexp {
 	result := make([]regexp.Regexp, 0)
 
 	for i := 0; i < len(stringList); i++ {
+		if stringList[i] == "" {
+			continue
+		}
+
 		pattern := regexp.QuoteMeta(stringList[i])
 		pattern = strings.Replace(pattern, "\\*", ".*", -1)
 		pattern = strings.Replace(pattern, "\\?", ".", -1)
@@ -102,10 +108,9 @@ func parseRegexList(s string) []regexp.Regexp {
 }
 
 func main() {
-	flagVerbose = flag.Bool("v", false, "Verbose output")
 	flagApply = flag.Bool("f", false, "Apply changes")
-	flagExcludes = flag.String("e", ".bzr,CVS,.git,.hg,.svn", "Comma-separated list of excluded files and directories")
-	flagIncludes = flag.String("i", "", "Comma-separated list of included files, e.g \"*.js,*.html,*index.*\"")
+	flagExcludes = flag.String("e", ".bzr,CVS,.git,.hg,.svn", "Comma-separated list of excluded files, wildcards supported")
+	flagIncludes = flag.String("i", "", "Comma-separated list of included files, wildcards supported, e.g \"*.js,*.html,*index.*\"")
 
 	flag.Usage = func() {
 		fmt.Println("Syntax: re [options] SEARCH REPLACEMENT [DIR ...]")
@@ -134,14 +139,10 @@ func main() {
 		fmt.Println("No changes will be applied unless -f is given.")
 	}
 
-	excludes = strings.Split(*flagExcludes, ",")
+	excludes = parseRegexList(*flagExcludes)
 	includes = parseRegexList(*flagIncludes)
 
 	for _, dir := range dirs {
-		if *flagVerbose {
-			fmt.Println("Scanning", dir)
-		}
-
 		err := filepath.Walk(dir, walk)
 
 		if err != nil {
