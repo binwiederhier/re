@@ -10,102 +10,19 @@ import (
 	"regexp"
 )
 
-var needle string
-var replacement string
-var dirs []string
-var replaced int
-var excludes []regexp.Regexp
-var includes []regexp.Regexp
-var flagApply *bool
-var flagExcludes *string
-var flagIncludes *string
+const maxFileSize = 10 * 1024 * 1024
 
-func walk(path string, info os.FileInfo, err error) error {
-	// Skip if in exclude list
-	basename := filepath.Base(path)
-
-	for _, exclude := range excludes {
-		if exclude.Match([]byte(basename)) {
-			if info.IsDir() {
-				fmt.Println("Skipping excluded directory", path)
-				return filepath.SkipDir
-			} else {
-				return nil
-			}
-		}
-	}
-
-
-	// Skip if not matching the includes list
-	if len(includes) > 0 {
-		matches := false
-		
-		for _, include := range includes {
-			if include.Match([]byte(basename)) {
-				matches = true
-				break
-			}
-		}
-		
-		if !matches {
-			return nil
-		}
-	}
-
-	// Skip folders
-	if info.IsDir() {
-		return nil
-	}
-
-	// Read contents
-	contents, err := ioutil.ReadFile(path)
-
-	if err != nil {
-		fmt.Errorf("E Error reading %s. Skipping.\n", path)
-		return nil
-	}
-
-	// Compare contents
-	oldContents := string(contents)
-	newContents := strings.Replace(oldContents, needle, replacement, -1)
-
-	if oldContents != newContents {
-		replaced++
-		fmt.Println("+", path)
-
-		if *flagApply {
-			ioutil.WriteFile(path, []byte(newContents), info.Mode())
-		}
-	}
-
-	return nil
-}
-
-func parseRegexList(s string) []regexp.Regexp {
-	stringList := strings.Split(s, ",")
-	result := make([]regexp.Regexp, 0)
-
-	for i := 0; i < len(stringList); i++ {
-		if stringList[i] == "" {
-			continue
-		}
-
-		pattern := regexp.QuoteMeta(stringList[i])
-		pattern = strings.Replace(pattern, "\\*", ".*", -1)
-		pattern = strings.Replace(pattern, "\\?", ".", -1)
-		pattern = "^" + pattern + "$"
-
-		regex, err := regexp.Compile(pattern)
-
-		if err != nil {
-			panic(err)
-		}
-
-		result = append(result, *regex)
-	}
-
-	return result
-}
+var (
+	needle string
+	replacement string
+	dirs []string
+	replaced int
+	excludes []regexp.Regexp
+	includes []regexp.Regexp
+	flagApply *bool
+	flagExcludes *string
+	flagIncludes *string
+)
 
 func main() {
 	flagApply = flag.Bool("f", false, "Apply changes")
@@ -155,4 +72,98 @@ func main() {
 	} else {
 		fmt.Printf("%d file(s) were updated.\n", replaced)
 	}
+}
+
+func parseRegexList(s string) []regexp.Regexp {
+	stringList := strings.Split(s, ",")
+	result := make([]regexp.Regexp, 0)
+
+	for i := 0; i < len(stringList); i++ {
+		if stringList[i] == "" {
+			continue
+		}
+
+		pattern := regexp.QuoteMeta(stringList[i])
+		pattern = strings.Replace(pattern, "\\*", ".*", -1)
+		pattern = strings.Replace(pattern, "\\?", ".", -1)
+		pattern = "^" + pattern + "$"
+
+		regex, err := regexp.Compile(pattern)
+
+		if err != nil {
+			panic(err)
+		}
+
+		result = append(result, *regex)
+	}
+
+	return result
+}
+
+func walk(path string, info os.FileInfo, err error) error {
+	// Skip if file too large
+	if info.Size() >= maxFileSize {
+		return nil
+	}
+
+	// Skip if in exclude list
+	basename := filepath.Base(path)
+
+	for _, exclude := range excludes {
+		if exclude.MatchString(basename) {
+			if info.IsDir() {
+				fmt.Println("Skipping excluded directory", path)
+				return filepath.SkipDir
+			} else {
+				return nil
+			}
+		}
+	}
+
+	// Skip if not matching the includes list
+	if len(includes) > 0 {
+		matches := false
+
+		for _, include := range includes {
+			if include.MatchString(basename) {
+				matches = true
+				break
+			}
+		}
+
+		if !matches {
+			return nil
+		}
+	}
+
+	// Skip folders
+	if info.IsDir() {
+		return nil
+	}
+
+	// Read contents
+	contents, err := ioutil.ReadFile(path)
+
+	if err != nil {
+		fmt.Printf("Error reading %s. Skipping.\n", path)
+		return nil
+	}
+
+	// Compare contents
+	oldContents := string(contents)
+	newContents := strings.Replace(oldContents, needle, replacement, -1)
+
+	if oldContents != newContents {
+		if *flagApply {
+			if err := ioutil.WriteFile(path, []byte(newContents), info.Mode()); err != nil {
+				fmt.Printf("Error writing file %s: %s.\n", path, err.Error())
+				return nil
+			}
+		}
+
+		replaced++
+		fmt.Println("+", path)
+	}
+
+	return nil
 }
