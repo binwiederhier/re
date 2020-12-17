@@ -1,0 +1,39 @@
+before:
+  hooks:
+    - go mod download
+builds:
+  - binary: re
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+nfpms:
+  -
+    package_name: re
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+    homepage: https://heckel.io/re
+    maintainer: Philipp C. Heckel <philipp.heckel@gmail.com>
+    description: Recursive search and replace tool
+    license: Apache 2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+archives:
+  - replacements:
+      386: i386
+      amd64: x86_64
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
